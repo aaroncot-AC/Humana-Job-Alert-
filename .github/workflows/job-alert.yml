@@ -1,0 +1,54 @@
+name: Humana Job Alert
+
+on:
+  schedule:
+    # Cron is UTC. These land at 9am / 4pm US Eastern during EDT (UTC-4,
+    # roughly mid-March to early November). During EST (UTC-5, winter) the
+    # alerts will arrive an hour later (10am / 5pm) -- fine for a "once or
+    # twice a day" digest, but adjust here if you want it pinned exactly.
+    - cron: "0 13 * * *" # ~9am ET
+    - cron: "0 20 * * *" # ~4pm ET
+  workflow_dispatch: {} # manual "Run workflow" button
+
+permissions:
+  contents: write # to commit seen_jobs.json back to the repo
+  issues: write # to create/read GitHub Issues (bonus feature)
+
+jobs:
+  check-jobs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        run: pytest -q
+
+      - name: Run job alert bot
+        env:
+          # Right-hand side must match your actual GitHub secret names
+          # (Settings -> Secrets and variables -> Actions). Left-hand side
+          # names are what main.py reads and can stay as-is.
+          DIGEST_TO_EMAIL: ${{ secrets.DIGESTTOEMAIL }}
+          RESEND_API_KEY: ${{ secrets.RESENDAPIKEY }}
+          FROM_EMAIL: ${{ secrets.FROMEMAIL }}
+          CREATE_GITHUB_ISSUES: "true"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python main.py
+
+      - name: Commit updated seen_jobs.json
+        run: |
+          git config user.name "job-alert-bot"
+          git config user.email "actions@github.com"
+          git add seen_jobs.json
+          git diff --cached --quiet || git commit -m "Update seen_jobs.json [skip ci]"
+          git push
